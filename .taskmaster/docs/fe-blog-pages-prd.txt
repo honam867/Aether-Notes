@@ -1,0 +1,53 @@
+[fe-blog-pages]-prd
+Title: Personal Blog – Frontend Blog Pages (Next.js)
+
+Purpose
+- Build public-facing blog UI with SEO using Next.js (App Router), consuming BE from Phases 2–4.
+
+Scope (MVP)
+- Home feed (featured + latest), pagination, filters (tag/category/search)
+- Post detail by slug with interactions (like/bookmark)
+- Tag page, Category page
+- Search page
+- SEO deliverables: metadata, OpenGraph/Twitter, sitemap.xml, rss.xml, robots.txt
+
+Tech
+- Next.js 14+ (App Router), TypeScript, Tailwind CSS
+- Server Components for data fetching (SSG/ISR; revalidate 60s)
+- Client Components only for interactive bits (like/bookmark)
+- lib/api.ts as thin SDK over BE endpoints
+
+Routes & Pages
+- / (Home Feed): featured section; list; query params: page, tag, category, q
+- /posts/[slug] (Post Detail): title, cover, meta, content, tags/category, like/bookmark, related posts (optional)
+- /tag/[slug] (Tag Listing)
+- /category/[slug] (Category Listing)
+- /search (Search page using q param)
+- /sitemap.xml (ISR), /rss.xml (ISR), /robots.txt
+
+Components
+- PostCard, PostList, Pagination, TagBadge, CategoryBadge, Prose (safe HTML/MD render), LikeButton (client), BookmarkButton (client), SearchBar
+- lib/seo.ts helpers for generateMetadata()
+
+Data Calls (examples)
+- GET /api/posts (filters: tag, category, q, page, limit, featured)
+- GET /api/posts/slug/:slug
+- GET /api/tags, GET /api/categories
+- POST /api/interactions/batch for flags
+- POST toggles for like/bookmark
+
+SEO
+- generateMetadata for each page
+- Canonicals, OG/Twitter, JSON-LD Article for detail
+- SSG/ISR revalidate: 60s
+
+Performance
+- next/image for covers
+- Keyset pagination in BE; FE uses page param
+- Batch flags for interactions to avoid N+1
+
+Errors/Empty
+- 404 for missing slug; graceful empty states
+
+Acceptance
+- Pages render with live API; SEO artifacts exist; interactions function with optimistic UI.

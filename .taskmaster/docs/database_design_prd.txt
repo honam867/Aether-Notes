@@ -1,0 +1,156 @@
+[be-database-design]-prd
+Title: Personal Blog – Database Design (MVP)
+
+Purpose
+- Define minimal-yet-extensible schema for a personal blog using Postgres (Supabase), consumed by a Node.js API and a Next.js frontend.
+- Skip auth/upload; you already have `users` and `uploads`. Focus on posts, categories, tags, comments, likes, bookmarks, SEO, and publish workflow.
+
+Out of Scope (handled elsewhere)
+- Authentication & authorization flows
+- File upload pipelines and storage setup
+- Admin UI and advanced analytics (non-MVP)
+
+Guiding Principles
+- Keep MVP simple; prefer fewer tables & clear relations
+- Add indexing for read-heavy blog patterns
+- Support drafts, publishing, and SEO-friendly slugs
+- Use UUIDs, UTC timestamps, soft-visibility for comments
+
+Entities
+- posts
+- categories
+- tags
+- post_tags (pivot)
+- comments (threaded)
+- likes (posts and comments, one like per user per target)
+- bookmarks (user saves posts)
+
+Tables (Drizzle-style definition; use equivalent in SQL if preferred)
+
+posts
+- id: uuid PK default gen_random_uuid()
+- user_id: uuid FK -> users.id NOT NULL (author)
+- title: varchar(255) NOT NULL
+- slug: varchar(255) UNIQUE NOT NULL
+- content: text NOT NULL (store serialized rich text/markdown/HTML)
+- category_id: uuid FK -> categories.id NULL
+- cover_image_id: uuid FK -> uploads.id NULL
+- meta_description: varchar(500) NULL
+- status: varchar(50) NOT NULL DEFAULT 'draft'  -- draft | published | archived
+- is_featured: boolean DEFAULT false
+- published_at: timestamp with time zone NULL
+- created_at: timestamp with time zone NOT NULL DEFAULT now()
+- updated_at: timestamp with time zone NOT NULL DEFAULT now()
+Indexes:
+- idx_posts_slug (slug)
+- idx_posts_category (category_id)
+- idx_posts_status_published_at (status, published_at DESC)
+Constraints/Notes:
+- UNIQUE(slug)
+- CHECK(status IN ('draft','published','archived'))
+- Trigger to keep updated_at = now()
+
+categories
+- id: uuid PK default gen_random_uuid()
+- name: varchar(100) UNIQUE NOT NULL
+- slug: varchar(100) UNIQUE NOT NULL
+- description: varchar(255) NULL
+- created_at: timestamp with time zone NOT NULL DEFAULT now()
+
+tags
+- id: uuid PK default gen_random_uuid()
+- name: varchar(100) UNIQUE NOT NULL
+- slug: varchar(100) UNIQUE NOT NULL
+- created_at: timestamp with time zone NOT NULL DEFAULT now()
+
+post_tags (pivot)
+- post_id: uuid FK -> posts.id NOT NULL
+- tag_id: uuid FK -> tags.id NOT NULL
+Primary Key:
+- (post_id, tag_id)
+Indexes:
+- idx_post_tags_post (post_id)
+- idx_post_tags_tag (tag_id)
+
+comments (threaded)
+- id: uuid PK default gen_random_uuid()
+- post_id: uuid FK -> posts.id NOT NULL
+- user_id: uuid FK -> users.id NOT NULL
+- parent_id: uuid FK -> comments.id NULL  -- for replies
+- content: text NOT NULL
+- status: varchar(50) NOT NULL DEFAULT 'visible'  -- visible | hidden | deleted
+- created_at: timestamp with time zone NOT NULL DEFAULT now()
+- updated_at: timestamp with time zone NOT NULL DEFAULT now()
+Indexes:
+- idx_comments_post (post_id, created_at)
+- idx_comments_parent (parent_id)
+Constraints/Notes:
+- CHECK(status IN ('visible','hidden','deleted'))
+- Consider limited depth via app logic (e.g., max depth = 2)
+
+likes
+- id: uuid PK default gen_random_uuid()
+- user_id: uuid FK -> users.id NOT NULL
+- post_id: uuid FK -> posts.id NULL
+- comment_id: uuid FK -> comments.id NULL
+- created_at: timestamp with time zone NOT NULL DEFAULT now()
+Indexes:
+- idx_likes_user_post (user_id, post_id) UNIQUE NULLS NOT DISTINCT
+- idx_likes_user_comment (user_id, comment_id) UNIQUE NULLS NOT DISTINCT
+Constraints/Notes:
+- Exactly one of (post_id, comment_id) must be NOT NULL (enforce via CHECK)
+
+bookmarks
+- id: uuid PK default gen_random_uuid()
+- user_id: uuid FK -> users.id NOT NULL
+- post_id: uuid FK -> posts.id NOT NULL
+- created_at: timestamp with time zone NOT NULL DEFAULT now()
+Indexes:
+- idx_bookmarks_user_post (user_id, post_id) UNIQUE
+
+Relationships Summary
+- users (1) -> (many) posts, comments, likes, bookmarks, uploads
+- posts (1) -> (many) comments, likes, bookmarks, post_tags
+- posts (many) <-> (many) tags via post_tags
+- posts (many) -> (1) categories (optional)
+- uploads (1) -> (0..1) posts.cover_image_id
+
+Suggested Triggers / Policies (optional but recommended)
+- posts_updated_at: BEFORE UPDATE set NEW.updated_at = now()
+- comments_updated_at: BEFORE UPDATE set NEW.updated_at = now()
+- Optional RLS (if direct client access) – otherwise enforce via API:
+  * posts: published rows are SELECTable by anon; draft/archived only by author/admin
+  * comments: visible rows are SELECTable by all; hidden/deleted only by moderators/authors
+
+Example Queries
+- Latest published posts: WHERE status = 'published' ORDER BY published_at DESC LIMIT n
+- Tag listing: SELECT t.*, COUNT(*) FROM post_tags pt JOIN tags t ON t.id=pt.tag_id GROUP BY t.id ORDER BY COUNT(*) DESC
+- Post with tags: SELECT p.*, array_agg(t.name) FROM posts p JOIN post_tags pt ON pt.post_id=p.id JOIN tags t ON t.id=pt.tag_id WHERE p.slug=$1 GROUP BY p.id
+- Threaded comments: SELECT * FROM comments WHERE post_id=$1 ORDER BY created_at ASC (nest in app)
+
+Migration Order
+1) categories, tags
+2) posts (FK to categories, uploads)
+3) post_tags
+4) comments
+5) likes
+6) bookmarks
+
+Seed Data (optional for dev)
+- categories: ["Announcements", "Engineering", "Thoughts"]
+- tags: ["nextjs","node","supabase","postgres","seo"]
+
+Non-Functional Notes
+- Text search: add Postgres GIN index with to_tsvector('simple', coalesce(title,'') || ' ' || coalesce(content,'')) for simple search
+- Slugs: generate in API; ensure uniqueness; on collisions, append -2, -3...
+- Content format: markdown or HTML; store as TEXT; sanitize on render
+- Pagination: keyset by published_at for stable feeds
+- Performance: add idx on (status, published_at DESC) and (user_id, created_at DESC) for dashboards
+
+Acceptance Criteria
+- Able to create, draft, publish, update, archive posts
+- Posts can be categorized and tagged
+- Comments can be added and replied to (threaded)
+- Users can like posts & comments; cannot like same entity twice
+- Users can bookmark posts (unique per user/post)
+- All major list/read paths covered by indexes

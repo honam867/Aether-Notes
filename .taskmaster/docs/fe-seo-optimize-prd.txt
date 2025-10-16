@@ -1,0 +1,75 @@
+[fe-seo-optimize]-prd
+Title: Personal Blog – SEO Optimization & Discovery (Next.js)
+
+Purpose
+- Implement full SEO and discovery layer for the blog: structured metadata, OpenGraph, sitemaps, RSS feed, robots.txt, and performance/analytics optimizations.
+
+Scope (MVP)
+- Page-level metadata generation
+- Structured data (JSON-LD)
+- Dynamic sitemap.xml
+- RSS feed (Atom optional)
+- robots.txt
+- Social cards (OpenGraph, Twitter)
+- Performance & analytics hooks
+
+Out of Scope
+- Admin analytics dashboards
+- A/B testing or advanced content optimization
+
+SEO Artifacts
+1. **generateMetadata()** in each page:
+   - title, description, canonical
+   - openGraph + twitterCard metadata
+   - Use fallback site config (e.g., name, description, baseUrl)
+   - Post pages: inject OG image, JSON-LD Article schema
+
+2. **Structured Data (JSON-LD)**
+   - Type: `Article` for posts
+   - Fields: headline, description, datePublished, dateModified, author, image, url
+   - Inject into `<script type="application/ld+json">`
+
+3. **Sitemap**
+   - Route: `/sitemap.xml`
+   - Built from `GET /api/posts` (published only)
+   - Include `/`, `/category/[slug]`, `/tag/[slug]`, `/posts/[slug]`
+   - Revalidate every 6–12 hours (ISR or incremental regeneration)
+
+4. **RSS Feed**
+   - Route: `/rss.xml`
+   - Format: RSS 2.0 or Atom 1.0
+   - Fields: title, link, description, pubDate, guid, author
+   - Limit ~50 latest published posts
+
+5. **robots.txt**
+   - Allow: `/`
+   - Disallow: `/studio`, `/api`
+   - Add sitemap reference: `Sitemap: https://yourdomain.com/sitemap.xml`
+
+6. **OpenGraph/Twitter**
+   - Use title, description, coverImage (if available)
+   - Fallback to default OG image if none
+   - Ensure `og:url`, `og:type`, and `og:site_name`
+   - Twitter: summary_large_image
+
+7. **Performance**
+   - next/image optimization for covers
+   - Revalidate content pages (ISR 60s–5m)
+   - Lighthouse target >95 SEO score
+   - Lazy-load below-fold images
+
+8. **Analytics**
+   - Integrate Google Analytics 4 or Plausible
+   - Wrap in environment flag (`NEXT_PUBLIC_ENABLE_ANALYTICS`)
+   - Provide `useAnalytics()` hook for event tracking (optional MVP)
+
+9. **Testing**
+   - Validate sitemap.xml, rss.xml, robots.txt in browser
+   - Validate JSON-LD with Google Rich Results Test
+   - Lighthouse audits (SEO 95+, Performance 90+)
+
+Acceptance Criteria
+- All pages have correct metadata (title, desc, OG/Twitter)
+- sitemap.xml, rss.xml, robots.txt generated dynamically
+- Structured data validated successfully
+- SEO Lighthouse score ≥95

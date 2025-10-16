@@ -1,0 +1,61 @@
+[fe-editor]-prd
+Title: Personal Blog – Post Editor (Next.js)
+
+Purpose
+- Provide an authoring experience to create/edit posts with images, tags, category, and publish workflow. Uses existing auth and upload.
+
+Scope (MVP)
+- Rich text editor (Markdown or block editor) with basic formatting (H1–H3, bold/italic, code, lists, quotes, links)
+- Insert images from existing uploads library (modal picker); set cover image
+- Post metadata: title, metaDescription (≤500), isFeatured, category (single), tags (multi up to 10)
+- Draft autosave and manual Save
+- Preview mode
+- Publish/Unpublish/Archive actions
+- Slug display (read-only by default), optional regenerate
+
+Tech
+- Next.js App Router; protected routes under /studio
+- TypeScript, Tailwind
+- Editor: TipTap (preferred) OR Markdown editor (toggle via feature flag)
+- Client components for editor; server actions/route handlers for BE calls
+
+Routes
+- /studio/posts (list author’s posts + create)
+- /studio/posts/new (editor)
+- /studio/posts/[id] (edit existing)
+- Modal: /studio/uploads (picker) to select from uploads table
+
+Key Flows
+- Create Draft: POST /api/posts → navigate to /studio/posts/[id]
+- Autosave: PATCH /api/posts/:id on debounce (1–2s) when dirty
+- Tag/Category: POST /api/tags, POST /api/categories (or pick existing)
+- Cover Image: set via uploads picker (uses uploads.id/publicUrl)
+- Preview: read-only render using same Prose styles as FE
+- Publish Controls:
+  - Publish: POST /api/posts/:id/publish
+  - Unpublish: POST /api/posts/:id/unpublish
+  - Archive: POST /api/posts/:id/archive
+
+Validation
+- Title required (1..255)
+- Content required for publish
+- metaDescription ≤ 500
+- Max 10 tags; category optional
+
+State & UX
+- Dirty state indicator + last saved timestamp
+- Toasts for save/publish actions
+- Guard on navigate away if dirty
+- Error banners for validation/API errors
+
+Security
+- Only author or admin can access their posts
+- Use existing auth session to sign BE requests
+
+Testing
+- Unit: form validators; debounce autosave
+- Integration: create→edit→publish; image insert; tag/category pick; preview; error states
+
+Acceptance
+- Authors can draft, preview, and publish posts with images, tags, and category.
+- Autosave works; publish state transitions reflect in UI.
