@@ -155,7 +155,6 @@ export const uploadToR2 = async ({ buffer, key, contentType, metadata = {} }) =>
       location: result.Location
     };
   } catch (error) {
-    console.error("Error uploading to R2:", error);
     throw new Error(`Failed to upload file to R2: ${error.message}`);
   }
 };
@@ -166,20 +165,13 @@ export const uploadToR2 = async ({ buffer, key, contentType, metadata = {} }) =>
  * @returns {Promise<boolean>} True if connection successful
  */
 export const testR2Connection = async () => {
-  try {
-    const client = getR2Client();
-    const bucket = getR2Bucket();
-    
-    // Try to head the bucket to verify access
-    const { HeadBucketCommand } = await import("@aws-sdk/client-s3");
-    await client.send(new HeadBucketCommand({ Bucket: bucket }));
-    
-    console.log(`✅ R2 connection successful. Bucket '${bucket}' is accessible.`);
-    return true;
-  } catch (error) {
-    console.error("❌ R2 connection failed:", error.message);
-    return false;
-  }
+  const client = getR2Client();
+  const bucket = getR2Bucket();
+  
+  const { HeadBucketCommand } = await import("@aws-sdk/client-s3");
+  await client.send(new HeadBucketCommand({ Bucket: bucket }));
+  
+  return true;
 };
 
 export default {

@@ -45,11 +45,14 @@ export const uploads = pgTable(
       .references(() => users.id)
       .notNull(),
 
+    // Optional thread association
+    threadId: uuid("thread_id"),
+
     // Optional title/label for the file
     title: varchar("title", { length: 255 }),
 
-    // Purpose/type of the uploaded file
-    purpose: filePurposeEnum("purpose").notNull(),
+    // Purpose of the upload: init, mask, reference, attachment
+    purpose: varchar("purpose", { length: 50 }).notNull().default("attachment"),
 
     // File metadata
     mimeType: varchar("mime_type", { length: 100 }).notNull(),

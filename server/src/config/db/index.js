@@ -1,16 +1,15 @@
-import dotenv from "dotenv";
 import { testConnection } from "../../db/drizzle.js";
-
-dotenv.config();
+import logger from "../logger.js";
+import { config } from "../env.js";
 
 async function connect() {
-    try {
-        await testConnection();
-        console.log(`💲💲💲 Connected to PostgreSQL: ${process.env.POSTGRES_URL}`);
-    } catch (error) {
-        console.log("💲💲💲 ~ connect ~ error:", error);
-        throw error;
-    }
+  try {
+    await testConnection();
+    logger.info(`Connected to PostgreSQL: ${config.database.url.split("@")[1]}`);
+  } catch (error) {
+    logger.error("Failed to connect to PostgreSQL:", error);
+    throw error;
+  }
 }
 
 export default { connect };
