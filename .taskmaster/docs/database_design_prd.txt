@@ -3,27 +3,31 @@ Title: Personal Blog – Database Design (MVP)
 
 Purpose
 - Define minimal-yet-extensible schema for a personal blog using Postgres (Supabase), consumed by a Node.js API and a Next.js frontend.
-- Skip auth/upload; you already have `users` and `uploads`. Focus on posts, categories, tags, comments, likes, bookmarks, SEO, and publish workflow.
+- Skip auth/upload; you already have `users` and `uploads`. Focus on posts, categories, tags, likes, bookmarks, SEO, scheduled publishing, and view tracking.
+- Single author blog with multi-topic content (tech, social, art, music, sharing).
 
 Out of Scope (handled elsewhere)
 - Authentication & authorization flows
 - File upload pipelines and storage setup
+- Comments system (not needed for MVP)
 - Admin UI and advanced analytics (non-MVP)
 
 Guiding Principles
 - Keep MVP simple; prefer fewer tables & clear relations
 - Add indexing for read-heavy blog patterns
-- Support drafts, publishing, and SEO-friendly slugs
-- Use UUIDs, UTC timestamps, soft-visibility for comments
+- Support drafts, published posts, scheduled publishing, and SEO-friendly slugs
+- Use UUIDs, UTC timestamps, denormalized counters for performance
+- Auto-generate meta descriptions from content
+- Track views for popular post sorting
 
 Entities
-- posts
-- categories
+- posts (with scheduled publishing)
+- categories (hierarchical)
 - tags
 - post_tags (pivot)
-- comments (threaded)
-- likes (posts and comments, one like per user per target)
+- likes (posts only)
 - bookmarks (user saves posts)
+- post_views (tracking)
 
 Tables (Drizzle-style definition; use equivalent in SQL if preferred)
 
@@ -32,36 +36,56 @@ posts
 - user_id: uuid FK -> users.id NOT NULL (author)
 - title: varchar(255) NOT NULL
 - slug: varchar(255) UNIQUE NOT NULL
-- content: text NOT NULL (store serialized rich text/markdown/HTML)
+- content: text NOT NULL (store HTML/rich text)
 - category_id: uuid FK -> categories.id NULL
-- cover_image_id: uuid FK -> uploads.id NULL
-- meta_description: varchar(500) NULL
-- status: varchar(50) NOT NULL DEFAULT 'draft'  -- draft | published | archived
+- cover_image_id: uuid FK -> uploads.id NOT NULL (required)
+- meta_description: varchar(500) NULL (auto-generated if empty)
+- og_title: varchar(255) NULL
+- og_description: varchar(500) NULL
+- og_image_id: uuid FK -> uploads.id NULL
+- status: varchar(50) NOT NULL DEFAULT 'draft'  -- draft | published
 - is_featured: boolean DEFAULT false
 - published_at: timestamp with time zone NULL
+- scheduled_at: timestamp with time zone NULL (for scheduled publishing)
+- like_count: integer DEFAULT 0 (denormalized counter)
+- view_count: integer DEFAULT 0 (denormalized counter)
 - created_at: timestamp with time zone NOT NULL DEFAULT now()
 - updated_at: timestamp with time zone NOT NULL DEFAULT now()
 Indexes:
 - idx_posts_slug (slug)
 - idx_posts_category (category_id)
 - idx_posts_status_published_at (status, published_at DESC)
+- idx_posts_scheduled_at (scheduled_at) WHERE scheduled_at IS NOT NULL
+- idx_posts_featured (is_featured, published_at DESC) WHERE is_featured = true
+- idx_posts_popular (like_count DESC, view_count DESC) WHERE status = 'published'
 Constraints/Notes:
 - UNIQUE(slug)
-- CHECK(status IN ('draft','published','archived'))
+- CHECK(status IN ('draft','published'))
+- CHECK(cover_image_id IS NOT NULL)
 - Trigger to keep updated_at = now()
+- Auto-generate meta_description from content if empty
 
-categories
+categories (hierarchical)
 - id: uuid PK default gen_random_uuid()
 - name: varchar(100) UNIQUE NOT NULL
 - slug: varchar(100) UNIQUE NOT NULL
 - description: varchar(255) NULL
+- parent_id: uuid FK -> categories.id NULL (for hierarchy)
 - created_at: timestamp with time zone NOT NULL DEFAULT now()
+Indexes:
+- idx_categories_parent (parent_id)
+- idx_categories_slug (slug)
+Constraints/Notes:
+- Self-referencing FK for hierarchy
+- Prevent circular references via app logic
 
 tags
 - id: uuid PK default gen_random_uuid()
 - name: varchar(100) UNIQUE NOT NULL
 - slug: varchar(100) UNIQUE NOT NULL
 - created_at: timestamp with time zone NOT NULL DEFAULT now()
+Indexes:
+- idx_tags_slug (slug)
 
 post_tags (pivot)
 - post_id: uuid FK -> posts.id NOT NULL
@@ -72,33 +96,16 @@ Indexes:
 - idx_post_tags_post (post_id)
 - idx_post_tags_tag (tag_id)
 
-comments (threaded)
+likes (posts only)
 - id: uuid PK default gen_random_uuid()
+- user_id: uuid FK -> users.id NOT NULL
 - post_id: uuid FK -> posts.id NOT NULL
-- user_id: uuid FK -> users.id NOT NULL
-- parent_id: uuid FK -> comments.id NULL  -- for replies
-- content: text NOT NULL
-- status: varchar(50) NOT NULL DEFAULT 'visible'  -- visible | hidden | deleted
-- created_at: timestamp with time zone NOT NULL DEFAULT now()
-- updated_at: timestamp with time zone NOT NULL DEFAULT now()
-Indexes:
-- idx_comments_post (post_id, created_at)
-- idx_comments_parent (parent_id)
-Constraints/Notes:
-- CHECK(status IN ('visible','hidden','deleted'))
-- Consider limited depth via app logic (e.g., max depth = 2)
-
-likes
-- id: uuid PK default gen_random_uuid()
-- user_id: uuid FK -> users.id NOT NULL
-- post_id: uuid FK -> posts.id NULL
-- comment_id: uuid FK -> comments.id NULL
 - created_at: timestamp with time zone NOT NULL DEFAULT now()
 Indexes:
-- idx_likes_user_post (user_id, post_id) UNIQUE NULLS NOT DISTINCT
-- idx_likes_user_comment (user_id, comment_id) UNIQUE NULLS NOT DISTINCT
+- idx_likes_user_post (user_id, post_id) UNIQUE
 Constraints/Notes:
-- Exactly one of (post_id, comment_id) must be NOT NULL (enforce via CHECK)
+- One like per user per post
+- Update post.like_count via trigger or app logic
 
 bookmarks
 - id: uuid PK default gen_random_uuid()
@@ -107,50 +114,82 @@ bookmarks
 - created_at: timestamp with time zone NOT NULL DEFAULT now()
 Indexes:
 - idx_bookmarks_user_post (user_id, post_id) UNIQUE
+- idx_bookmarks_user_created (user_id, created_at DESC)
+
+post_views (tracking)
+- id: uuid PK default gen_random_uuid()
+- post_id: uuid FK -> posts.id NOT NULL
+- user_id: uuid FK -> users.id NULL (nullable for anonymous views)
+- session_id: varchar(255) NULL (for session-based tracking)
+- ip_address: inet NULL (for anonymous tracking)
+- created_at: timestamp with time zone NOT NULL DEFAULT now()
+Indexes:
+- idx_post_views_post (post_id, created_at)
+- idx_post_views_user_session (user_id, session_id, post_id) UNIQUE NULLS NOT DISTINCT
+Constraints/Notes:
+- Track one view per session per post
+- Update post.view_count via trigger or app logic
+- Either user_id OR session_id must be present
 
 Relationships Summary
-- users (1) -> (many) posts, comments, likes, bookmarks, uploads
-- posts (1) -> (many) comments, likes, bookmarks, post_tags
+- users (1) -> (many) posts, likes, bookmarks, uploads
+- posts (1) -> (many) likes, bookmarks, post_tags, post_views
 - posts (many) <-> (many) tags via post_tags
 - posts (many) -> (1) categories (optional)
+- categories (1) -> (many) categories (parent/child hierarchy)
 - uploads (1) -> (0..1) posts.cover_image_id
+- uploads (1) -> (0..1) posts.og_image_id
 
 Suggested Triggers / Policies (optional but recommended)
 - posts_updated_at: BEFORE UPDATE set NEW.updated_at = now()
-- comments_updated_at: BEFORE UPDATE set NEW.updated_at = now()
+- update_like_count: AFTER INSERT/DELETE on likes, update posts.like_count
+- update_view_count: AFTER INSERT on post_views, update posts.view_count
+- auto_generate_meta_description: BEFORE INSERT/UPDATE on posts, set meta_description if empty
 - Optional RLS (if direct client access) – otherwise enforce via API:
-  * posts: published rows are SELECTable by anon; draft/archived only by author/admin
-  * comments: visible rows are SELECTable by all; hidden/deleted only by moderators/authors
+  * posts: published rows are SELECTable by anon; draft only by author/admin
+  * likes/bookmarks: users can only see their own
 
 Example Queries
-- Latest published posts: WHERE status = 'published' ORDER BY published_at DESC LIMIT n
+- Latest published posts: WHERE status = 'published' ORDER BY published_at DESC LIMIT 15
+- Scheduled posts: WHERE scheduled_at IS NOT NULL AND scheduled_at <= now() AND status = 'draft'
+- Popular posts: WHERE status = 'published' ORDER BY like_count DESC, view_count DESC LIMIT 15
 - Tag listing: SELECT t.*, COUNT(*) FROM post_tags pt JOIN tags t ON t.id=pt.tag_id GROUP BY t.id ORDER BY COUNT(*) DESC
 - Post with tags: SELECT p.*, array_agg(t.name) FROM posts p JOIN post_tags pt ON pt.post_id=p.id JOIN tags t ON t.id=pt.tag_id WHERE p.slug=$1 GROUP BY p.id
-- Threaded comments: SELECT * FROM comments WHERE post_id=$1 ORDER BY created_at ASC (nest in app)
+- Hierarchical categories: WITH RECURSIVE category_tree AS (SELECT * FROM categories WHERE parent_id IS NULL UNION ALL SELECT c.* FROM categories c JOIN category_tree ct ON c.parent_id = ct.id) SELECT * FROM category_tree
+- User bookmarks: SELECT p.* FROM posts p JOIN bookmarks b ON b.post_id=p.id WHERE b.user_id=$1 ORDER BY b.created_at DESC
 
 Migration Order
-1) categories, tags
-2) posts (FK to categories, uploads)
-3) post_tags
-4) comments
+1) categories (self-referencing FK)
+2) tags
+3) posts (FK to categories, uploads)
+4) post_tags
 5) likes
 6) bookmarks
+7) post_views
 
 Seed Data (optional for dev)
-- categories: ["Announcements", "Engineering", "Thoughts"]
-- tags: ["nextjs","node","supabase","postgres","seo"]
+- categories: ["Tech", "Social", "Art", "Music", "Sharing"] (flat for MVP, can add hierarchy later)
+- tags: ["nextjs","node","supabase","postgres","seo","react","javascript","design","photography"]
 
 Non-Functional Notes
-- Text search: add Postgres GIN index with to_tsvector('simple', coalesce(title,'') || ' ' || coalesce(content,'')) for simple search
-- Slugs: generate in API; ensure uniqueness; on collisions, append -2, -3...
-- Content format: markdown or HTML; store as TEXT; sanitize on render
-- Pagination: keyset by published_at for stable feeds
-- Performance: add idx on (status, published_at DESC) and (user_id, created_at DESC) for dashboards
+- Text search: add Postgres GIN index with to_tsvector('simple', coalesce(title,'') || ' ' || coalesce(content,'')) for simple ILIKE search
+- Slugs: generate in API; ensure uniqueness; on collisions, append timestamp/random string
+- Content format: HTML/rich text; store as TEXT; sanitize on render
+- Pagination: cursor-based by published_at for stable feeds
+- Performance: denormalized counters for like_count and view_count
+- Scheduled publishing: check scheduled_at <= now() AND status = 'draft' to auto-publish
+- View tracking: one view per session per post (session-based, not per page load)
+- SEO: auto-generate meta_description from content if empty
+- Open Graph: separate fields for og_title, og_description, og_image_id
 
 Acceptance Criteria
-- Able to create, draft, publish, update, archive posts
-- Posts can be categorized and tagged
-- Comments can be added and replied to (threaded)
-- Users can like posts & comments; cannot like same entity twice
+- Able to create, draft, publish, schedule posts
+- Posts can be categorized (hierarchical) and tagged (unlimited)
+- Users can like posts (one like per user per post)
 - Users can bookmark posts (unique per user/post)
+- View tracking works (one per session per post)
+- Popular posts sorting by like count and view count
+- SEO-friendly slugs with auto-generation
+- Open Graph support for social sharing
 - All major list/read paths covered by indexes
+- Scheduled publishing works automatically

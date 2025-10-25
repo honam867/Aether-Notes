@@ -1,9 +1,7 @@
 ---
 description: Code style guidelines requiring lodash utilities, modern JavaScript patterns, and explicit null handling
-globs: server/src/**/*.js, src/**/*.js, **/*.ts
-alwaysApply: true
+alwaysApply: false
 ---
-
 - **Lodash Requirement:**
   - Always use lodash utility functions for data manipulation and access
   - Import specific lodash functions at the top of each file

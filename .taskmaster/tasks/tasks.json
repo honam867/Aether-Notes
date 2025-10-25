@@ -6,5 +6,117 @@
       "updated": "2025-10-12T05:40:58.976Z",
       "description": "Tasks for master context"
     }
+  },
+  "be-design-database": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Design and Implement Categories Table (Hierarchical Structure)",
+        "description": "Create the categories table in Postgres with support for parent-child relationships, ensuring referential integrity and preventing circular dependencies.",
+        "details": "Use PostgreSQL (preferably with Drizzle ORM or native SQL for schema migration) to create a 'categories' table with UUID PK, name/slug (unique), description, parent_id (nullable, FK to categories.id), and created_at. Index parent_id and slug, add self-referencing FK, and implement application logic (in migration or Postgres check constraint with recursive CTE, if desired) to prevent circular references. Recommended libraries: Drizzle ORM >=0.29.0 or use SQL migration management (e.g., with Supabase's migration tool).",
+        "testStrategy": "Insert categories with and without parent_id, ensure parent-child linkage works, check unique constraints, attempt to create a circular reference and ensure it's blocked by logic.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 2,
+        "title": "Set Up Tags Table",
+        "description": "Establish a simple tags table for associating tags with posts, including unique slug and name constraints.",
+        "details": "Define 'tags' table with UUID PK, name and slug (unique, varchar(100)), and created_at timestamp. Add idx_tags_slug. Use Drizzle ORM schema or direct SQL for migration. Validate slug generation and uniqueness in API layer before insert.",
+        "testStrategy": "Create several tags, verify unique name/slug constraint, test collisions and auto-generation of slugs.",
+        "priority": "medium",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 3,
+        "title": "Develop Posts Table with Scheduling, SEO, and Open Graph Fields",
+        "description": "Implement the posts table, incorporating all necessary fields for draft/published/scheduled states, SEO, Open Graph, denormalized counters, and category/upload references.",
+        "details": "Create 'posts' table per schema: UUID PK, user_id (UUID, FK->users.id), title, slug (unique), content (TEXT), category_id (FK->categories.id, nullable), cover_image_id (FK->uploads.id), meta_description (optional, auto-generated from content), og_title/og_description/og_image_id, status (check constraint: 'draft'|'published'), is_featured, published_at, scheduled_at, like_count, view_count, created_at, updated_at. Add recommended indexes as listed. Use triggers to update updated_at and to auto-generate meta_description if empty: implemented with PL/pgSQL triggers calling a function to generate a short summary from content (e.g., extract first N words or via TEXT excerpt). Use Supabase/Drizzle migration tools for deployment. Follow best practices for text sanitation (if ever rendered to client).",
+        "testStrategy": "Insert, update, and query post rows; check that auto-generated fields and triggers work (e.g., updated_at changes, meta_description is generated); test all constraint violations; validate slug uniqueness with collision handling in API simulation.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 4,
+        "title": "Create Post-Tags Pivot Table",
+        "description": "Build a join table to support many-to-many relationships between posts and tags, with proper indexes and constraints.",
+        "details": "Define 'post_tags' table: post_id (FK->posts.id), tag_id (FK->tags.id), composite PK (post_id, tag_id), indexes on both FKs. Enforce constraint to prevent duplicate assignments. Migrate using Drizzle ORM or raw SQL.",
+        "testStrategy": "Add tags to posts, ensure uniqueness, query join table, ensure deleting post or tag cascades correctly (validate orphans are not left).",
+        "priority": "medium",
+        "dependencies": [
+          3
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 5,
+        "title": "Implement Likes Table with Denormalized Counter Trigger",
+        "description": "Set up the likes table to track user likes on posts, ensuring only one like per user/post and a trigger to update posts.like_count automatically.",
+        "details": "Create 'likes' table: UUID PK, user_id (FK->users.id), post_id (FK->posts.id), created_at. Composite unique index on (user_id, post_id). Implement AFTER INSERT/DELETE triggers (PL/pgSQL or Supabase Functions) that update corresponding post's like_count denormalized counter. For trigger: use UPDATE posts SET like_count = like_count + 1/-1 WHERE id = NEW.post_id.",
+        "testStrategy": "Like/unlike posts with various users, check unique constraint, validate that like_count in posts table updates correctly after inserts/deletes.",
+        "priority": "medium",
+        "dependencies": [
+          3
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 6,
+        "title": "Set Up Bookmarks Table",
+        "description": "Establish the bookmarks table to track which posts users have saved/bookmarked, with uniqueness constraints and appropriate indexing.",
+        "details": "Create 'bookmarks' table: UUID PK, user_id (FK->users.id), post_id (FK->posts.id), created_at. Unique index (user_id, post_id), index (user_id, created_at DESC) for efficient recent bookmark queries. No triggers required as no denormalized counter.",
+        "testStrategy": "Bookmark/unbookmark posts for various users, check unique constraint, test user-specific and chronological bookmark queries for performance.",
+        "priority": "medium",
+        "dependencies": [
+          3
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 7,
+        "title": "Implement Post Views Table and View Counting Trigger",
+        "description": "Create the post_views table to track user or session-based post views and update the denormalized view_count on posts with a trigger. Ensure only one view per session/user per post.",
+        "details": "Define 'post_views' table: UUID PK, post_id (FK->posts.id), user_id (nullable, FK->users.id), session_id (varchar), ip_address (inet), created_at. Unique composite index (user_id, session_id, post_id) (using NULLS NOT DISTINCT if possible with Postgres >=15), for deduplication of views. Implement AFTER INSERT trigger to increment view_count on posts; in trigger or API logic, enforce that each user or session_ip can only add one row per post. (For Supabase, use row-level policy if API direct access is allowed, otherwise enforce in backend logic.)",
+        "testStrategy": "Simulate viewing posts with/without login, ensure only 1 entry per session/user, verify view_count increments properly after POST /view. Attempt duplicate views in same session/user and ensure no double counts.",
+        "priority": "medium",
+        "dependencies": [
+          3
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 8,
+        "title": "Add Full-Text Search, Slug Generation, and Scheduled Publishing Mechanism",
+        "description": "Enhance the schema with a GIN index for text search, ensure atomic slug generation, and provide a mechanism for automated scheduled publishing.",
+        "details": "Add a GIN index on posts using to_tsvector('simple', coalesce(title,'') || ' ' || coalesce(content,'')) to support simple ILIKE text search. Implement slug generation helper in API: check slug collision before insert; if collision, append unique string (timestamp or random). For scheduled publishing: recommend a Supabase Edge Function or CRON job (node-cron or Supabase schedule) that periodically (e.g., every minute) updates posts where scheduled_at <= now() AND status = 'draft' to status = 'published', sets published_at = now(), and triggers updated_at. Document queries for popular, scheduled, tagged, and categorized post listings for API usage.",
+        "testStrategy": "Test text search for various terms; insert slugs with collision, confirm uniqueness; schedule a post in the future, confirm it auto-publishes at correct time and is included in published queries.",
+        "priority": "medium",
+        "dependencies": [
+          3
+        ],
+        "status": "pending",
+        "subtasks": []
+      }
+    ],
+    "metadata": {
+      "created": "2025-10-25T03:55:44.932Z",
+      "updated": "2025-10-25T04:06:27.649Z",
+      "description": "Tasks for be-design-database context"
+    }
   }
 }
